@@ -1,16 +1,18 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { FinancialInputs, SavedProject } from '../types';
-import { Save, FolderOpen, Trash2, Clock, Download, Upload, FileJson, AlertCircle, Check, Edit2, X } from 'lucide-react';
+import { DEFAULT_INPUTS } from '../constants';
+import { Save, FolderOpen, Trash2, Clock, Download, Upload, FileJson, AlertCircle, Check, Edit2, X, RefreshCw } from 'lucide-react';
 
 interface ProjectManagerProps {
   currentInputs: FinancialInputs;
-  onLoad: (inputs: FinancialInputs) => void;
+  onLoad: (project: SavedProject) => void;
+  activeProjectId: string | null;
 }
 
 const STORAGE_KEY = 'biofinance_projects';
 
-const ProjectManager: React.FC<ProjectManagerProps> = ({ currentInputs, onLoad }) => {
+const ProjectManager: React.FC<ProjectManagerProps> = ({ currentInputs, onLoad, activeProjectId }) => {
   const [projects, setProjects] = useState<SavedProject[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [newProjectName, setNewProjectName] = useState('');
@@ -64,6 +66,8 @@ const ProjectManager: React.FC<ProjectManagerProps> = ({ currentInputs, onLoad }
     setIsSaving(false);
     setShowList(true);
     setNotification({ type: 'success', message: '项目已成功保存' });
+    // Automatically switch to the newly created project
+    onLoad(newProject);
   };
 
   const handleDelete = (id: string, e: React.MouseEvent) => {
@@ -76,10 +80,35 @@ const ProjectManager: React.FC<ProjectManagerProps> = ({ currentInputs, onLoad }
 
   const handleLoad = (project: SavedProject) => {
     if (window.confirm(`确定要加载项目 "${project.name}" 吗？当前未保存的更改将会丢失。`)) {
-        onLoad(project.inputs);
+        onLoad(project);
     }
   };
   
+  // --- Individual Update (Overwrite) ---
+  const handleUpdateProject = (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    const projectIndex = projects.findIndex(p => p.id === id);
+    if (projectIndex === -1) return;
+
+    if (!window.confirm(`确定要更新项目 "${projects[projectIndex].name}" 为当前配置吗？`)) return;
+
+    const updatedProject = {
+        ...projects[projectIndex],
+        inputs: currentInputs,
+        updatedAt: Date.now()
+    };
+    
+    const newProjects = [...projects];
+    newProjects[projectIndex] = updatedProject;
+    
+    saveProjectsToStorage(newProjects);
+    setNotification({ type: 'success', message: '项目已更新' });
+    // If updating active project, reloading it ensures state consistency, though inputs are already same.
+    // If updating another project, we don't necessarily switch to it, but typically "Save" means "Save what I see to this slot".
+    // Let's reload it to be safe and activate it if it wasn't.
+    onLoad(updatedProject);
+  };
+
   // --- Renaming Functions ---
   const startRenaming = (project: SavedProject, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -107,21 +136,29 @@ const ProjectManager: React.FC<ProjectManagerProps> = ({ currentInputs, onLoad }
   };
 
   // --- Export Functionality ---
-  const handleExport = () => {
+  const handleExportAll = () => {
     if (projects.length === 0) {
       setNotification({ type: 'error', message: '暂无项目可导出' });
       return;
     }
     const dataStr = JSON.stringify(projects, null, 2);
+    downloadJson(dataStr, `biofinance_backup_all_${new Date().toISOString().split('T')[0]}.json`);
+    setNotification({ type: 'success', message: '所有项目导出成功' });
+  };
+
+  const handleExportSingle = (e: React.MouseEvent, project: SavedProject) => {
+      e.stopPropagation();
+      const dataStr = JSON.stringify(project, null, 2);
+      downloadJson(dataStr, `biofinance_${project.name}_${new Date().toISOString().split('T')[0]}.json`);
+      setNotification({ type: 'success', message: '项目导出成功' });
+  };
+
+  const downloadJson = (dataStr: string, fileName: string) => {
     const dataUri = 'data:application/json;charset=utf-8,' + encodeURIComponent(dataStr);
-    
-    const exportFileDefaultName = `biofinance_backup_${new Date().toISOString().split('T')[0]}.json`;
-    
     const linkElement = document.createElement('a');
     linkElement.setAttribute('href', dataUri);
-    linkElement.setAttribute('download', exportFileDefaultName);
+    linkElement.setAttribute('download', fileName);
     linkElement.click();
-    setNotification({ type: 'success', message: '项目导出成功' });
   };
 
   // --- Import Functionality ---
@@ -136,30 +173,93 @@ const ProjectManager: React.FC<ProjectManagerProps> = ({ currentInputs, onLoad }
     const reader = new FileReader();
     reader.onload = (event) => {
       try {
-        const importedData = JSON.parse(event.target?.result as string);
+        const jsonStr = event.target?.result as string;
+        const parsed = JSON.parse(jsonStr);
         
-        // Basic validation: must be an array of objects with required fields
-        if (!Array.isArray(importedData)) {
-          throw new Error('导入文件格式不正确（需为数组）');
+        const projectsToImport: SavedProject[] = [];
+
+        // Helper: Normalize any object into valid FinancialInputs, using defaults for missing fields
+        const extractInputs = (data: any): FinancialInputs | null => {
+            if (!data || typeof data !== 'object') return null;
+            
+            // Heuristic: Check for at least one key financial field to assume it's relevant data
+            const keys = Object.keys(data);
+            const isLikelyInputs = keys.some(k => ['fc', 'p', 'vc', 'fcDetails', 'productDetails'].includes(k));
+            
+            if (!isLikelyInputs) return null;
+
+            // Deep merge logic:
+            // 1. Start with DEFAULT_INPUTS
+            // 2. Override with data
+            // 3. Ensure arrays and nested objects are handled safely
+            return {
+                ...DEFAULT_INPUTS,
+                ...data,
+                // Ensure arrays are arrays
+                fcDetails: Array.isArray(data.fcDetails) ? data.fcDetails : DEFAULT_INPUTS.fcDetails,
+                productDetails: Array.isArray(data.productDetails) ? data.productDetails : DEFAULT_INPUTS.productDetails,
+                // Ensure aiConfig is merged safely
+                aiConfig: {
+                    ...DEFAULT_INPUTS.aiConfig,
+                    ...(data.aiConfig || {})
+                }
+            };
+        };
+
+        const processItem = (item: any) => {
+             // Case A: It's a full SavedProject object (has 'inputs' property)
+             if (item.inputs && typeof item.inputs === 'object') {
+                 const validInputs = extractInputs(item.inputs);
+                 if (validInputs) {
+                     projectsToImport.push({
+                         id: item.id || Date.now().toString() + Math.random().toString(36).substr(2, 5),
+                         name: item.name || `导入项目 ${new Date().toLocaleTimeString()}`,
+                         updatedAt: item.updatedAt || Date.now(),
+                         inputs: validInputs
+                     });
+                 }
+             } 
+             // Case B: It's a raw FinancialInputs object
+             else {
+                 const validInputs = extractInputs(item);
+                 if (validInputs) {
+                     projectsToImport.push({
+                         id: Date.now().toString() + Math.random().toString(36).substr(2, 5),
+                         name: `导入配置 ${projectsToImport.length + 1}`,
+                         updatedAt: Date.now(),
+                         inputs: validInputs
+                     });
+                 }
+             }
+        };
+
+        if (Array.isArray(parsed)) {
+            parsed.forEach(processItem);
+        } else if (typeof parsed === 'object') {
+            processItem(parsed);
         }
 
-        // Merge logic: use Map to prevent ID duplicates, keeping imported ones as priority
+        if (projectsToImport.length === 0) {
+            throw new Error('未识别到有效的财务配置数据');
+        }
+
+        // Merge strategies
         const projectMap = new Map();
         projects.forEach(p => projectMap.set(p.id, p));
-        importedData.forEach(p => {
-            if (p.id && p.name && p.inputs) {
-                projectMap.set(p.id, p);
-            }
+        
+        projectsToImport.forEach(p => {
+             projectMap.set(p.id, p);
         });
 
         const mergedProjects = Array.from(projectMap.values()).sort((a, b) => b.updatedAt - a.updatedAt);
         saveProjectsToStorage(mergedProjects);
-        setNotification({ type: 'success', message: `已导入 ${importedData.length} 个项目` });
+        setNotification({ type: 'success', message: `成功导入 ${projectsToImport.length} 个项目` });
         setShowList(true);
+
       } catch (err) {
-        setNotification({ type: 'error', message: '文件解析失败：请确保是有效的项目备份文件' });
+        console.error(err);
+        setNotification({ type: 'error', message: '导入失败：文件格式不正确或不包含有效数据' });
       } finally {
-        // Reset input so the same file can be uploaded again if needed
         if (fileInputRef.current) fileInputRef.current.value = '';
       }
     };
@@ -195,7 +295,7 @@ const ProjectManager: React.FC<ProjectManagerProps> = ({ currentInputs, onLoad }
                 }}
                 className={`text-xs flex items-center gap-1 px-3 py-1.5 rounded transition-colors ${isSaving ? 'bg-slate-100 text-slate-600' : 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm'}`}
              >
-                <Save className="w-3 h-3" /> {isSaving ? '取消' : '保存当前'}
+                <Save className="w-3 h-3" /> {isSaving ? '取消' : '另存为新项目'}
              </button>
         </div>
       </div>
@@ -210,8 +310,8 @@ const ProjectManager: React.FC<ProjectManagerProps> = ({ currentInputs, onLoad }
           </button>
           <div className="w-[1px] h-3 bg-slate-200 self-center"></div>
           {/* Swapped Icons Below */}
-          <button onClick={handleExport} className="hover:text-indigo-600 transition-colors flex items-center gap-1" title="导出备份">
-            <Upload className="w-3 h-3" /> 导出
+          <button onClick={handleExportAll} className="hover:text-indigo-600 transition-colors flex items-center gap-1" title="导出备份">
+            <Upload className="w-3 h-3" /> 导出全部
           </button>
           <button onClick={handleImportTrigger} className="hover:text-indigo-600 transition-colors flex items-center gap-1" title="导入备份">
             <Download className="w-3 h-3" /> 导入
@@ -228,7 +328,7 @@ const ProjectManager: React.FC<ProjectManagerProps> = ({ currentInputs, onLoad }
 
       {isSaving && (
         <div className="mb-4 p-4 bg-indigo-50 rounded-lg border border-indigo-100 animate-in fade-in slide-in-from-top-2">
-            <label className="block text-xs font-bold text-indigo-900 mb-2">为当前分析方案命名</label>
+            <label className="block text-xs font-bold text-indigo-900 mb-2">为新项目命名</label>
             <div className="flex gap-2">
                 <input
                     type="text"
@@ -244,7 +344,7 @@ const ProjectManager: React.FC<ProjectManagerProps> = ({ currentInputs, onLoad }
                     disabled={!newProjectName.trim()}
                     className="px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-md hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
                 >
-                    确认保存
+                    保存
                 </button>
             </div>
         </div>
@@ -258,13 +358,21 @@ const ProjectManager: React.FC<ProjectManagerProps> = ({ currentInputs, onLoad }
                     <span>暂无保存的项目</span>
                 </div>
             ) : (
-                projects.map(project => (
+                projects.map(project => {
+                    const isActive = activeProjectId === project.id;
+                    return (
                     <div
                         key={project.id}
-                        className={`group relative flex items-center justify-between p-3 rounded-lg border border-slate-100 bg-slate-50 hover:bg-white hover:border-indigo-200 hover:shadow-md transition-all ${editingProjectId === project.id ? 'ring-2 ring-indigo-500 bg-white shadow-md' : 'cursor-pointer'}`}
+                        className={`group relative flex items-center justify-between p-3 rounded-lg border transition-all 
+                           ${isActive 
+                                ? 'bg-indigo-50 border-indigo-300 ring-1 ring-indigo-300 shadow-sm' 
+                                : 'border-slate-100 bg-slate-50 hover:bg-white hover:border-indigo-200 hover:shadow-md cursor-pointer'
+                           }
+                           ${editingProjectId === project.id ? 'bg-white shadow-md ring-2 ring-indigo-500' : ''}
+                        `}
                         onClick={editingProjectId === project.id ? undefined : () => handleLoad(project)}
                     >
-                        <div className="flex-1 min-w-0 pr-4">
+                        <div className="flex-1 min-w-0 pr-2">
                             {editingProjectId === project.id ? (
                                 <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
                                     <input 
@@ -282,7 +390,9 @@ const ProjectManager: React.FC<ProjectManagerProps> = ({ currentInputs, onLoad }
                                 </div>
                             ) : (
                                 <>
-                                    <h3 className="text-sm font-bold text-slate-700 truncate group-hover:text-indigo-700 transition-colors">{project.name}</h3>
+                                    <h3 className={`text-sm font-bold truncate transition-colors ${isActive ? 'text-indigo-800' : 'text-slate-700 group-hover:text-indigo-700'}`}>
+                                        {project.name} {isActive && <span className="inline-block text-[10px] bg-indigo-600 text-white px-1.5 rounded ml-1 font-normal align-middle">当前</span>}
+                                    </h3>
                                     <p className="text-xs text-slate-400 flex items-center gap-1 mt-1">
                                         <Clock className="w-3 h-3" /> {formatDate(project.updatedAt)}
                                     </p>
@@ -290,13 +400,13 @@ const ProjectManager: React.FC<ProjectManagerProps> = ({ currentInputs, onLoad }
                             )}
                         </div>
                         
-                        <div className="flex items-center gap-1">
+                        <div className="flex items-center gap-1 flex-shrink-0">
                              {editingProjectId === project.id ? (
                                  <>
                                     <button
                                         onClick={(e) => saveRenaming(project.id, e)}
                                         className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-full transition-colors"
-                                        title="确认"
+                                        title="确认重命名"
                                     >
                                         <Check className="w-4 h-4" />
                                     </button>
@@ -310,28 +420,47 @@ const ProjectManager: React.FC<ProjectManagerProps> = ({ currentInputs, onLoad }
                                  </>
                              ) : (
                                  <>
-                                     <div className="text-[10px] font-bold text-indigo-600 opacity-0 group-hover:opacity-100 transition-opacity bg-indigo-50 px-2 py-1 rounded uppercase tracking-wider hidden sm:block">
-                                        Load
-                                     </div>
+                                     {/* Individual Save (Update) */}
+                                     <button
+                                        onClick={(e) => handleUpdateProject(e, project.id)}
+                                        className={`p-1.5 rounded-full transition-colors z-10 ${isActive ? 'text-indigo-600 bg-indigo-100 hover:bg-indigo-200' : 'text-slate-400 hover:text-indigo-600 hover:bg-indigo-50'}`}
+                                        title="更新此存档"
+                                     >
+                                        <RefreshCw className="w-3.5 h-3.5" />
+                                     </button>
+
+                                     {/* Individual Export */}
+                                     <button
+                                        onClick={(e) => handleExportSingle(e, project)}
+                                        className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-full transition-colors z-10"
+                                        title="导出此项目"
+                                     >
+                                        <Upload className="w-3.5 h-3.5" />
+                                     </button>
+
+                                     {/* Rename */}
                                      <button
                                         onClick={(e) => startRenaming(project, e)}
-                                        className="p-2 text-slate-300 hover:text-indigo-600 hover:bg-indigo-50 rounded-full transition-colors z-10 opacity-0 group-hover:opacity-100"
+                                        className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-full transition-colors z-10"
                                         title="重命名"
                                      >
-                                        <Edit2 className="w-4 h-4" />
+                                        <Edit2 className="w-3.5 h-3.5" />
                                      </button>
+
+                                     {/* Delete */}
                                      <button
                                         onClick={(e) => handleDelete(project.id, e)}
-                                        className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors z-10"
+                                        className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors z-10"
                                         title="删除存档"
                                      >
-                                        <Trash2 className="w-4 h-4" />
+                                        <Trash2 className="w-3.5 h-3.5" />
                                      </button>
                                  </>
                              )}
                         </div>
                     </div>
-                ))
+                  );
+                })
             )}
         </div>
       )}

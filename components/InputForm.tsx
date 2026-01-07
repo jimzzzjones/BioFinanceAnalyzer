@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { FinancialInputs, FCItem, ProductItem } from '../types';
-import { Calculator, DollarSign, Package, TrendingUp, List, Plus, Trash2, PieChart, Percent, ArrowLeftRight } from 'lucide-react';
+import { Calculator, DollarSign, Package, TrendingUp, List, Plus, Trash2, PieChart, Percent, ArrowLeftRight, ShoppingBag, PiggyBank } from 'lucide-react';
 
 interface InputFormProps {
   inputs: FinancialInputs;
@@ -103,6 +103,8 @@ const InputForm: React.FC<InputFormProps> = ({ inputs, onChange }) => {
   };
 
   const totalQuantity = inputs.productDetails.reduce((sum, item) => sum + (Number(item.mix) || 0), 0);
+  const totalRevenue = inputs.productDetails.reduce((sum, item) => sum + ((Number(item.p) || 0) * (Number(item.mix) || 0)), 0);
+  const totalVC = inputs.productDetails.reduce((sum, item) => sum + ((Number(item.vc) || 0) * (Number(item.mix) || 0)), 0);
 
   return (
     <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 h-full">
@@ -314,16 +316,16 @@ const InputForm: React.FC<InputFormProps> = ({ inputs, onChange }) => {
                         <div className="flex justify-between px-1">
                             <span className="flex items-center gap-2 text-slate-500 font-medium">
                                 <DollarSign className="w-4 h-4 text-indigo-500 opacity-60" />
-                                加权平均单价 (P):
+                                销售回款小计:
                             </span>
-                            <span className="font-bold text-slate-900 font-mono text-sm">¥{inputs.p.toLocaleString()}</span>
+                            <span className="font-bold text-slate-900 font-mono text-sm">¥{totalRevenue.toLocaleString()}</span>
                         </div>
                         <div className="flex justify-between px-1">
                             <span className="flex items-center gap-2 text-slate-500 font-medium">
                                 <Package className="w-4 h-4 text-emerald-500 opacity-60" />
-                                加权平均变动成本 (VC):
+                                变动成本小计:
                             </span>
-                            <span className="font-bold text-slate-900 font-mono text-sm">¥{inputs.vc.toLocaleString()}</span>
+                            <span className="font-bold text-slate-900 font-mono text-sm">¥{totalVC.toLocaleString()}</span>
                         </div>
                     </div>
                 </div>
@@ -331,11 +333,11 @@ const InputForm: React.FC<InputFormProps> = ({ inputs, onChange }) => {
           )}
         </div>
 
-        {/* --- 3. Target Profit Section --- */}
+        {/* --- 3. Target Gross Profit Section --- */}
         <div className="group border-t border-slate-100 pt-6">
           <div className="flex items-center justify-between mb-2">
              <label className="block text-sm font-medium text-slate-700">
-               3. 目标利润 (Target Profit)
+               3. 目标毛利润 (Target Gross Profit)
              </label>
              <button 
                onClick={toggleTpMode}
@@ -367,7 +369,7 @@ const InputForm: React.FC<InputFormProps> = ({ inputs, onChange }) => {
                             <span className="text-slate-500 font-bold">%</span>
                         </div>
                     </div>
-                    <p className="mt-2 text-xs text-slate-500">输入期望的销售净利率 (Profit Margin)，系统将反推目标销售额。</p>
+                    <p className="mt-2 text-xs text-slate-500">输入期望的毛利率 (Gross Margin)，系统将反推目标销售额。</p>
                 </>
             ) : (
                 <>
@@ -384,10 +386,56 @@ const InputForm: React.FC<InputFormProps> = ({ inputs, onChange }) => {
                             placeholder="例如：2000000"
                         />
                     </div>
-                    <p className="mt-2 text-xs text-slate-500">输入期望实现的年度税前目标利润绝对值。</p>
+                    <p className="mt-2 text-xs text-slate-500">输入期望实现的年度毛利润（扣除变动成本与固定成本，未扣除销售费用）。</p>
                 </>
             )}
           </div>
+        </div>
+        
+        {/* --- 4. Sales Expenses Section --- */}
+        <div className="group border-t border-slate-100 pt-6">
+           <label className="block text-sm font-medium text-slate-700 mb-2">
+             4. 销售费用 (Sales Expenses)
+           </label>
+           <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <ShoppingBag className="w-4 h-4 text-slate-400" />
+                </div>
+                <input
+                    type="number"
+                    min="0"
+                    value={inputs.salesExpenses === 0 ? '' : inputs.salesExpenses}
+                    onChange={handleSimpleChange('salesExpenses')}
+                    className="block w-full pl-9 pr-3 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
+                    placeholder="例如：500000"
+                />
+            </div>
+        </div>
+
+        {/* --- 5. Target Net Profit Section --- */}
+        <div className="group border-t border-slate-100 pt-6 pb-2">
+           <label className="block text-sm font-medium text-slate-700 mb-2">
+             5. 目标净利润 (Target Net Profit)
+           </label>
+           <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <PiggyBank className="w-4 h-4 text-emerald-500" />
+                </div>
+                <input
+                    type="number"
+                    min="0"
+                    disabled={inputs.tpMode === 'rate'} 
+                    value={inputs.targetNetProfit === 0 ? '' : inputs.targetNetProfit}
+                    onChange={handleSimpleChange('targetNetProfit')}
+                    className="block w-full pl-9 pr-3 py-2.5 border border-emerald-200 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-colors bg-emerald-50/30 disabled:opacity-70 disabled:bg-slate-50 disabled:border-slate-200"
+                    placeholder={inputs.tpMode === 'rate' ? "根据毛利率自动计算" : "例如：1500000"}
+                />
+            </div>
+            {inputs.tpMode === 'amount' && (
+                <p className="mt-2 text-xs text-slate-500">
+                    逻辑关系：净利润 = 毛利润 - 销售费用。修改此处将自动反推毛利润。
+                </p>
+            )}
         </div>
 
       </div>

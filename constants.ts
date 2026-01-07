@@ -5,17 +5,20 @@ export const DEFAULT_INPUTS: FinancialInputs = {
     fc: 2000000,
     p: 15000,
     vc: 5000,
-    tp: 1000000,
+    tp: 1000000, // Now represents Target Gross Profit
     
     tpMode: 'amount',
     tpRate: 20,
+
+    salesExpenses: 500000, // Default Sales Expenses
+    targetNetProfit: 500000, // Default Target Net Profit (1M Gross - 0.5M Sales Exp)
     
     fcMode: 'simple',
     fcDetails: [
         { id: '1', name: '厂房租金 & 物业', amount: 800000 },
         { id: '2', name: '技术人员薪资', amount: 900000 },
         { id: '3', name: '设备折旧摊销', amount: 200000 },
-        { id: '4', name: '行政与市场费用', amount: 100000 },
+        { id: '4', name: '行政管理费用', amount: 100000 },
     ],
 
     productMode: 'simple',

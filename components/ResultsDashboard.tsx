@@ -48,10 +48,9 @@ const ResultsDashboard: React.FC<ResultsDashboardProps> = ({ results, inputs }) 
   const isSafe = results.safetyMargin > 0.3;
   const isRisky = results.safetyMargin < 0.1;
 
-  const tpDisplayLabel = inputs.tpMode === 'rate' ? '目标利润率' : '目标利润';
-  const tpDisplaySymbol = inputs.tpMode === 'rate' ? 'TP(%)' : 'TP';
+  const tpDisplayLabel = inputs.tpMode === 'rate' ? '目标毛利率' : '目标毛利润';
+  const tpDisplaySymbol = inputs.tpMode === 'rate' ? 'Gross Rate%' : 'Gross TP';
   const tpDisplayValue = inputs.tpMode === 'rate' ? `${inputs.tpRate}%` : formatCurrency(inputs.tp);
-  const tpDisplayDesc = inputs.tpMode === 'rate' ? '期望销售净利率' : '期望年度利润';
 
   const markdownTable = `
 | 变量/指标 | 符号 | 数值 | 说明 |
@@ -60,15 +59,22 @@ const ResultsDashboard: React.FC<ResultsDashboardProps> = ({ results, inputs }) 
 | 固定成本 | FC | ${formatCurrency(inputs.fc)} | 年度总固定成本 |
 | 产品单价 | P | ${formatCurrency(inputs.p)} | 单个产品销售均价 |
 | 单位变动成本 | VC | ${formatCurrency(inputs.vc)} | 单个产品变动成本 |
-| ${tpDisplayLabel} | ${tpDisplaySymbol} | ${tpDisplayValue} | ${tpDisplayDesc} |
+| ${tpDisplayLabel} | ${tpDisplaySymbol} | ${tpDisplayValue} | 扣除变动与固定成本后 |
+| 销售费用 | SalesExp | ${formatCurrency(inputs.salesExpenses)} | 独立的销售支出 |
 | **计算结果** | | | |
 | 单位贡献毛利 | CM | ${formatCurrency(results.cm)} | P - VC |
 | 贡献毛利率 | CMR | ${formatPercent(results.cmr)} | CM / P |
-| **盈亏平衡点** | BEP | **${formatNumber(results.bepUnits)}** 单位 | FC / CM |
-| 盈亏平衡金额 | BEP($) | **${formatCurrency(results.bepAmount)}** | FC / CMR |
+| **盈亏平衡点 (毛利)** | BEP(G) | **${formatNumber(results.bepUnits)}** 单位 | 覆盖 FC |
+| **盈亏平衡点 (净利)** | BEP(N) | **${formatNumber(results.bepNetUnits)}** 单位 | 覆盖 FC + SalesExp |
 | **目标销售** | Target | **${formatNumber(results.targetUnits)}** 单位 | 满足目标利润的销量 |
 | 目标销售额 | Target($) | **${formatCurrency(results.targetAmount)}** | 满足目标利润的销售额 |
-| 预计利润额 | Eff.TP | ${formatCurrency(results.effectiveTp)} | 目标销售额下的利润 |
+| **成本构成分析** | (at Target) | | |
+| 预计总变动成本 | Total VC | ${formatCurrency(results.totalVC)} | VC * 目标销量 |
+| 业务成本 (FC+VC) | BizCost | ${formatCurrency(results.totalBusinessCost)} | FC + Total VC |
+| 总支出 (含销售) | AllCost | ${formatCurrency(results.totalAllCost)} | BizCost + SalesExp |
+| **利润预测** | | | |
+| 预计毛利润 | Eff.Gross | ${formatCurrency(results.effectiveGrossTp)} | 目标销售额下的毛利 |
+| 预计净利润 | Eff.Net | ${formatCurrency(results.effectiveNetTp)} | 目标销售额下的净利 |
 | 安全边际率 | SM% | ${formatPercent(results.safetyMargin)} | 风险评估指标 |
 `.trim();
 
@@ -95,15 +101,30 @@ const ResultsDashboard: React.FC<ResultsDashboardProps> = ({ results, inputs }) 
       </h2>
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
-        <div className="p-5 bg-indigo-50 border border-indigo-100 rounded-xl relative overflow-hidden group hover:shadow-md transition-all">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+        <div className="p-5 bg-sky-50 border border-sky-100 rounded-xl relative overflow-hidden group hover:shadow-md transition-all">
           <div className="relative z-10">
-            <p className="text-xs font-bold text-indigo-600 uppercase tracking-wider mb-1">盈亏平衡点 (BEP)</p>
+            <p className="text-xs font-bold text-sky-600 uppercase tracking-wider mb-1">毛利盈亏平衡点 (Gross BEP)</p>
             <div className="flex items-baseline gap-2">
-               <span className="text-3xl font-bold text-slate-800 tracking-tight">{formatCurrency(results.bepAmount)}</span>
+               <span className="text-2xl font-bold text-slate-800 tracking-tight">{formatCurrency(results.bepAmount)}</span>
             </div>
             <div className="mt-2 text-sm text-slate-600 font-medium bg-white/50 inline-block px-2 py-0.5 rounded-md">
-               {formatNumber(results.bepUnits)} 单位
+               {formatNumber(results.bepUnits)} 单位 (仅含FC)
+            </div>
+          </div>
+          <div className="absolute right-0 bottom-0 opacity-10 transform translate-y-1/4 translate-x-1/4">
+             <div className="w-24 h-24 bg-sky-600 rounded-full"></div>
+          </div>
+        </div>
+
+        <div className="p-5 bg-indigo-50 border border-indigo-100 rounded-xl relative overflow-hidden group hover:shadow-md transition-all">
+          <div className="relative z-10">
+            <p className="text-xs font-bold text-indigo-600 uppercase tracking-wider mb-1">净利盈亏平衡点 (Net BEP)</p>
+            <div className="flex items-baseline gap-2">
+               <span className="text-2xl font-bold text-slate-800 tracking-tight">{formatCurrency(results.bepNetAmount)}</span>
+            </div>
+            <div className="mt-2 text-sm text-slate-600 font-medium bg-white/50 inline-block px-2 py-0.5 rounded-md">
+               {formatNumber(results.bepNetUnits)} 单位 (含销售费用)
             </div>
           </div>
           <div className="absolute right-0 bottom-0 opacity-10 transform translate-y-1/4 translate-x-1/4">
@@ -115,10 +136,10 @@ const ResultsDashboard: React.FC<ResultsDashboardProps> = ({ results, inputs }) 
           <div className="relative z-10">
             <p className="text-xs font-bold text-emerald-600 uppercase tracking-wider mb-1">目标销售额 (Target)</p>
             <div className="flex items-baseline gap-2">
-               <span className="text-3xl font-bold text-slate-800 tracking-tight">{formatCurrency(results.targetAmount)}</span>
+               <span className="text-2xl font-bold text-slate-800 tracking-tight">{formatCurrency(results.targetAmount)}</span>
             </div>
             <div className="mt-2 text-sm text-slate-600 font-medium bg-white/50 inline-block px-2 py-0.5 rounded-md">
-               {formatNumber(results.targetUnits)} 单位
+               {formatNumber(results.targetUnits)} 单位 | 净利: {formatCurrency(results.effectiveNetTp)}
             </div>
           </div>
           <div className="absolute right-0 bottom-0 opacity-10 transform translate-y-1/4 translate-x-1/4">
@@ -198,7 +219,13 @@ const ResultsDashboard: React.FC<ResultsDashboardProps> = ({ results, inputs }) 
               <td className="px-6 py-3 text-sm font-medium text-slate-700">{tpDisplayLabel}</td>
               <td className="px-6 py-3 text-sm text-center text-slate-500 font-mono">{tpDisplaySymbol}</td>
               <td className="px-6 py-3 text-sm text-right text-slate-700 font-mono">{tpDisplayValue}</td>
-              <td className="px-6 py-3 text-sm text-slate-500 hidden sm:table-cell">{tpDisplayDesc}</td>
+              <td className="px-6 py-3 text-sm text-slate-500 hidden sm:table-cell">扣除变动/固定成本后</td>
+            </tr>
+            <tr>
+              <td className="px-6 py-3 text-sm font-medium text-slate-700">销售费用</td>
+              <td className="px-6 py-3 text-sm text-center text-slate-500 font-mono">SalesExp</td>
+              <td className="px-6 py-3 text-sm text-right text-slate-700 font-mono">{formatCurrency(inputs.salesExpenses)}</td>
+              <td className="px-6 py-3 text-sm text-slate-500 hidden sm:table-cell">独立的销售支出</td>
             </tr>
 
             {/* Calculations Section */}
@@ -217,28 +244,64 @@ const ResultsDashboard: React.FC<ResultsDashboardProps> = ({ results, inputs }) 
               <td className="px-6 py-3 text-sm text-right text-slate-700 font-mono">{formatPercent(results.cmr)}</td>
               <td className="px-6 py-3 text-sm text-slate-500 hidden sm:table-cell">CM / P</td>
             </tr>
-            <tr className="bg-indigo-50/30">
-              <td className="px-6 py-3 text-sm font-bold text-indigo-900">盈亏平衡金额</td>
-              <td className="px-6 py-3 text-sm text-center text-indigo-500 font-mono font-bold">BEP($)</td>
-              <td className="px-6 py-3 text-sm text-right text-indigo-700 font-bold font-mono">{formatCurrency(results.bepAmount)}</td>
-              <td className="px-6 py-3 text-sm text-indigo-500 hidden sm:table-cell">FC / CMR</td>
+            <tr className="bg-sky-50/30">
+              <td className="px-6 py-3 text-sm font-bold text-sky-900">毛利平衡点金额</td>
+              <td className="px-6 py-3 text-sm text-center text-sky-500 font-mono font-bold">BEP(G)</td>
+              <td className="px-6 py-3 text-sm text-right text-sky-700 font-bold font-mono">{formatCurrency(results.bepAmount)}</td>
+              <td className="px-6 py-3 text-sm text-sky-500 hidden sm:table-cell">仅覆盖固定成本</td>
             </tr>
+             <tr className="bg-indigo-50/30">
+              <td className="px-6 py-3 text-sm font-bold text-indigo-900">净利平衡点金额</td>
+              <td className="px-6 py-3 text-sm text-center text-indigo-500 font-mono font-bold">BEP(N)</td>
+              <td className="px-6 py-3 text-sm text-right text-indigo-700 font-bold font-mono">{formatCurrency(results.bepNetAmount)}</td>
+              <td className="px-6 py-3 text-sm text-indigo-500 hidden sm:table-cell">覆盖FC + 销售费用</td>
+            </tr>
+
             <tr className="bg-emerald-50/30">
               <td className="px-6 py-3 text-sm font-bold text-emerald-900">目标销售额</td>
               <td className="px-6 py-3 text-sm text-center text-emerald-500 font-mono font-bold">Target($)</td>
               <td className="px-6 py-3 text-sm text-right text-emerald-700 font-bold font-mono">{formatCurrency(results.targetAmount)}</td>
               <td className="px-6 py-3 text-sm text-emerald-500 hidden sm:table-cell">
-                  {inputs.tpMode === 'rate' ? 'FC / (CMR - Rate)' : '(FC + TP) / CMR'}
+                  满足目标利润
               </td>
             </tr>
-            {inputs.tpMode === 'rate' && (
-                <tr className="bg-emerald-50/10">
-                <td className="px-6 py-3 text-sm font-medium text-slate-700">预计利润额</td>
-                <td className="px-6 py-3 text-sm text-center text-slate-500 font-mono">Eff.TP</td>
-                <td className="px-6 py-3 text-sm text-right text-slate-700 font-mono">{formatCurrency(results.effectiveTp)}</td>
-                <td className="px-6 py-3 text-sm text-slate-500 hidden sm:table-cell">Target($) * Rate</td>
-                </tr>
-            )}
+            
+            {/* Cost Analysis Section */}
+            <tr className="bg-slate-100/80">
+                <td className="px-6 py-2 text-xs font-bold text-slate-500 uppercase tracking-wider" colSpan={4}>成本构成分析 (于目标销量下)</td>
+            </tr>
+            <tr>
+                <td className="px-6 py-3 text-sm font-medium text-slate-700 pl-8">预计总变动成本</td>
+                <td className="px-6 py-3 text-sm text-center text-slate-500 font-mono">Total VC</td>
+                <td className="px-6 py-3 text-sm text-right text-slate-700 font-mono">{formatCurrency(results.totalVC)}</td>
+                <td className="px-6 py-3 text-sm text-slate-500 hidden sm:table-cell">单位VC × 目标销量</td>
+            </tr>
+            <tr>
+                <td className="px-6 py-3 text-sm font-medium text-slate-700 pl-8">预计业务成本 (FC+VC)</td>
+                <td className="px-6 py-3 text-sm text-center text-slate-500 font-mono">BizCost</td>
+                <td className="px-6 py-3 text-sm text-right text-slate-700 font-mono font-bold">{formatCurrency(results.totalBusinessCost)}</td>
+                <td className="px-6 py-3 text-sm text-slate-500 hidden sm:table-cell">固定成本 + 总变动成本</td>
+            </tr>
+             <tr>
+                <td className="px-6 py-3 text-sm font-medium text-slate-700 pl-8">预计总支出 (含销售)</td>
+                <td className="px-6 py-3 text-sm text-center text-slate-500 font-mono">AllCost</td>
+                <td className="px-6 py-3 text-sm text-right text-slate-700 font-mono">{formatCurrency(results.totalAllCost)}</td>
+                <td className="px-6 py-3 text-sm text-slate-500 hidden sm:table-cell">业务成本 + 销售费用</td>
+            </tr>
+
+
+            <tr className="bg-emerald-50/10">
+                <td className="px-6 py-3 text-sm font-medium text-slate-700">预计毛利润</td>
+                <td className="px-6 py-3 text-sm text-center text-slate-500 font-mono">Eff.Gross</td>
+                <td className="px-6 py-3 text-sm text-right text-slate-700 font-mono">{formatCurrency(results.effectiveGrossTp)}</td>
+                <td className="px-6 py-3 text-sm text-slate-500 hidden sm:table-cell">Target($) * Rate 或 目标值</td>
+            </tr>
+            <tr className="bg-emerald-50/10">
+                <td className="px-6 py-3 text-sm font-medium text-slate-700">预计净利润</td>
+                <td className="px-6 py-3 text-sm text-center text-slate-500 font-mono">Eff.Net</td>
+                <td className="px-6 py-3 text-sm text-right text-slate-700 font-mono">{formatCurrency(results.effectiveNetTp)}</td>
+                <td className="px-6 py-3 text-sm text-slate-500 hidden sm:table-cell">毛利润 - 销售费用</td>
+            </tr>
             <tr className={`${isSafe ? 'bg-emerald-100/50' : isRisky ? 'bg-red-100/50' : 'bg-amber-100/50'}`}>
               <td className="px-6 py-3 text-sm font-bold text-slate-800">安全边际率</td>
               <td className="px-6 py-3 text-sm text-center text-slate-500 font-mono font-bold">SM%</td>

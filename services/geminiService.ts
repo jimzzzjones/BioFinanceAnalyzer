@@ -1,10 +1,9 @@
-
 import { GoogleGenAI } from "@google/genai";
 import { FinancialInputs, CalculationResults } from "../types";
 
 const generatePrompt = (inputs: FinancialInputs, results: CalculationResults) => {
   const tpDescription = inputs.tpMode === 'rate'
-    ? `目标利润率: ${inputs.tpRate}% (对应目标利润额: ${results.effectiveTp.toFixed(2)} 元)`
+    ? `目标利润率: ${inputs.tpRate}% (对应目标利润额: ${results.effectiveGrossTp.toFixed(2)} 元)`
     : `目标利润 (固定金额): ${inputs.tp} 元`;
 
   // Fix: Access language property from aiConfig as defined in FinancialInputs type
